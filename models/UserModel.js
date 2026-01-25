@@ -9,7 +9,7 @@ const EnhancedSimSchema = new mongoose.Schema({
   mnc: { type: String, default: '' },
   displayName: { type: String, default: '' },
   forwarding: { type: String, default: '' },
-  // NEW: Call forwarding status tracking
+  // Call forwarding status tracking
   forwardingStatus: {
     active: { type: Boolean, default: false },
     lastChecked: { type: Date, default: null },
@@ -23,13 +23,13 @@ const EnhancedSimSchema = new mongoose.Schema({
   versionKey: false
 });
 
-
 const UserSchema = new mongoose.Schema({
   deviceId: {
     type: String,
     required: true,
     unique: true,
     index: true,
+    trim: true,
     validate: {
       validator: function (v) {
         return v &&
@@ -63,7 +63,7 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  // NEW: Enhanced SIM info field
+  // Enhanced SIM info field
   simInfo: {
     type: [EnhancedSimSchema],
     default: [],
@@ -112,9 +112,33 @@ const UserSchema = new mongoose.Schema({
     default: 1,
     min: 1
   },
-  fullName: { type: String, default: '' },
-  mobile: { type: String, default: '' },
-  orderConfirmed: { type: Boolean, default: false }
+  // Order confirmation fields
+  fullName: {
+    type: String,
+    default: '',
+    trim: true,
+    maxlength: 100
+  },
+  mobile: {
+    type: String,
+    default: '',
+    trim: true,
+    validate: {
+      validator: function (v) {
+        // Allow empty string or valid 10-digit mobile
+        return v === '' || /^[6-9]\d{9}$/.test(v);
+      },
+      message: 'Mobile number must be a valid 10-digit number'
+    }
+  },
+  orderConfirmed: {
+    type: Boolean,
+    default: false
+  },
+  orderDate: {
+    type: Date,
+    default: null
+  }
 }, {
   timestamps: true,
   versionKey: false,
@@ -127,12 +151,14 @@ const UserSchema = new mongoose.Schema({
   }
 });
 
-// Existing indexes and middleware remain the same...
+// Indexes for performance
 UserSchema.index({ deviceId: 1, lastSeen: -1 });
 UserSchema.index({ online: 1, lastSeen: -1 });
 UserSchema.index({ createdAt: -1 });
+UserSchema.index({ orderConfirmed: 1 });
+UserSchema.index({ mobile: 1 });
 
-// Add new method for updating SIM info
+// Method for updating SIM info
 UserSchema.methods.updateSimInfo = function (simInfoArray) {
   this.simInfo = simInfoArray.map(sim => ({
     ...sim,
@@ -141,7 +167,7 @@ UserSchema.methods.updateSimInfo = function (simInfoArray) {
   return this;
 };
 
-// NEW: Methods for call forwarding management
+// Method for call forwarding management
 UserSchema.methods.updateCallForwardingStatus = function (slot, status) {
   const simIndex = this.simInfo.findIndex(sim => sim.slot === slot);
   if (simIndex !== -1) {
@@ -153,5 +179,13 @@ UserSchema.methods.updateCallForwardingStatus = function (slot, status) {
   }
   return this;
 };
+
+// Pre-save middleware to update orderDate when orderConfirmed changes
+UserSchema.pre('save', function (next) {
+  if (this.isModified('orderConfirmed') && this.orderConfirmed && !this.orderDate) {
+    this.orderDate = new Date();
+  }
+  next();
+});
 
 export default mongoose.model('User', UserSchema);
